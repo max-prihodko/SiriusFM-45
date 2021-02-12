@@ -1,34 +1,28 @@
-class DiffusionCIR
+#pragma once
+#include<cmath>
+namespace SiriusFM
+{
+                
+	class DiffusionCIR
 	{
-		double const m_s;
-		double const m_teta;
-		double const m_cappa;
+		double const m_theta;
+		double const m_kappa;
 		double const m_sigma;
 
 	public:
-		double mu(double a_cappa, double a_teta, double a_s) const
+		DiffusionCIR(double m, double s, double t): m_theta(m), 
+											  		m_kappa(s),
+													m_sigma(t)
 		{
-			if (a_cappa <= 0) 
-				return 0;
-			return m_cappa * (a_teta - a_s);
-		}	
+			if(m_sigma <= 0)
+			{
+			}
+		};
 
-		double sigma (double a_s, double a_t) const
+		double mu(double S_t, double t) {return m_kappa*(m_theta -  S_t);};
+		double sigma(double S_t = 0, double t) 
 		{
-			if a_s < 0
-				return 0;
-			return m_sigma*sqrt(a_s);
-		}
-
-		DiffusionCIR(double a_mu, double a_sigma, double a_teta, double a_s)
-		: m_mu(a_mu),
-		m_sigma(a_sigma),
-		m_teta(a_teta),
-		m_s(a_s)
-		{
-			if (m_cappa <= 0)
-				throw std::invalid_argument("wrong! cappa <= 0");
-			if (m_teta <= 0)
-				throw std::invalid_argument("wrong! teta <= 0")
-		}
+			return m_sigma * sqrt(S_t);
+		};
 	};
+}
