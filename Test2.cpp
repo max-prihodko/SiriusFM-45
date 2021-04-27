@@ -1,59 +1,52 @@
 #include "DiffusionGBM.h"
 #include "IRProviderConst.h"
 #include "MCEngine1D.hpp"
+#include "Option.h"
 #include "VanillaOptions.h"
 
 namespace SiriusFM
 {
-  // Path Evaluator for Option Pricing:
-  class OPPathEval
-  {
-  private:
-    OptionFX const* const m_option;
-    long   m_P;     // Total paths evaluated
-    double m_sum;   // Sum of Payoffs
-    double m_sum2;  // Sum of Payoff^2
-    double m_minPO; // Min PayOff
-    double m_maxPO; // Max PayOff
+	class OPPathEval
+	{
+		Option const* const m_option;
+		long m_P; //total paths evaluated
+		double m_sum; //of payoffs
+		double m_sum2; //of payoffs^2
+	public:
+		OPPathEval(Option const* a_option)
+		: m_option(a_option),
+		  m_P(0),
+		  m_sum(0),
+		  m_sum2(0)
+		{assert(m_option!=nullptr);}
 
-  public:
-    OPPathEval(OptionFX const* a_option)
-    : m_option(a_option),
-      m_P     (0),
-      m_sum   (0),
-      m_sum2  (0),
-      m_minPO ( INFINITY),
-      m_maxPO (-INFINITY)
-      
-    { assert(m_option != nullptr); }
+		void operator() (long a_L, 
+						 long a_PM, 
+						 double const* a_paths,
+						 double const* a_ts)
+		{
+			for(long p = 0; p < a_PM; ++p)
+			{
+				double const* path = a_paths + p * a_L;
+				double payoff = m_option->Payoff(a_L, path, a_ts);
+				m_sum += payoff;
+				m_sum2 += payoff*payoff;
+			}
+			m_P += a_PM;
+		}
 
-    void operator() (long a_L,     long a_PM,
-                     double const* a_paths, double const* a_ts)
-    {
-      for (long p = 0; p < a_PM; ++p)
-      {
-        double const* path = a_paths + p * a_L;
-        double payOff      = m_option->Payoff(a_L, path, a_ts);
-        m_sum  += payOff;
-        m_sum2 += payOff * payOff;
-        m_minPO = std::min<double>(m_minPO, payOff);
-        m_maxPO = std::max<double>(m_maxPO, payOff);
-      }
-      m_P += a_PM;
-    }
+		//getpxstats returns E[Px], std[Px]:
+		std::pair<double ,double> GetPxStats() const 
+		{
+			if( m_P < 2)
+				throw std::runtime_error("empty OPPathEval");
+			double px = m_sum / double(m_P);
+			double var = ( m_sum2 - double(m_P) * px * px) / double(m_P - 1);
+			double err = (px == 0) ? sqrt(var) : sqrt(var)/fabs(px);
+			return std::make_pair(px, sqrt(var));
+		}
 
-    // GetPxStats returns (E[Px], StD[Px]/E[Px]):
-    std::pair<double, double> GetPxStats() const
-    {
-      if (m_P < 2)
-        throw std::runtime_error("Empty OPPathEval");
-      double px  =  m_sum  / double(m_P);
-      double var = (m_sum2 - double(m_P) * px * px) / double(m_P - 1);
-      assert(var >= 0);
-      double err = (px != 0) ? sqrt(var) / fabs(px) : sqrt(var);
-      return std::make_pair(px, err);
-    }
-  };
+	};
 }
 
 using namespace SiriusFM;
@@ -88,34 +81,33 @@ int main(int argc, char** argv)
 	IRProvider<IRModeE::Const> irp(nullptr);
 	DiffusionGBM diff(mu, sigma, S0);
 
-	MCEngine1D<decltype(diff), decltype(irp), decltype(irp),
-             CcyE, CcyE, OPPathEval>
-    mce(20000, 20000);
+	MCEngine1D<decltype(diff), decltype(irp),
+		decltype(irp), CcyE, CcyE, OPPathEval> mce(20000, 20000);
 
-	OptionFX const* opt = (strcmp(OptType, "Call") == 0)
-						? static_cast<OptionFX*>(new EurCallOptionFX(ccyA, ccyB, K, T_days))
+	Option const* opt = (strcmp(OptType, "Call") == 0)
+						? static_cast<Option*>(new EurCallOption(K, T_days))
 						: 
 						(strcmp(OptType, "Put") == 0)
-						? static_cast<OptionFX*> (new EurPutOptionFX(ccyA, ccyB, K, T_days))
+						? static_cast<Option*> (new EurPutOption(K, T_days))
 						:throw invalid_argument("Bad option type");
 
 	time_t t0 = time(nullptr);
 	time_t T = t0 + SEC_IN_DAY * T_days;
+	//double Ty = double(T_days)/AVG_DAYS_IN_YEAR;
 
-  // Path Evaluator:
-  OPPathEval pathEval(opt);
+	//patheval:
+	OPPathEval pathEval(opt);
 
-	//Run MC: Option pricing is Risk-Neutral:
-	// UseTimerSeed=true:
+	//Run MC
+	//Use timer seed = true
 	mce.Simulate<true>
-    (t0, T, tau_mins, P, true, &diff, &irp, &irp, ccyA, ccyB, &pathEval);
+		(t0, T, tau_mins, P, 1, &diff, &irp, &irp, ccyA, ccyB, &pathEval);
 
-  auto res   = pathEval.GetPxStats();
-  double px  = res.first;
-  double err = res.second;
+	auto res = pathEval.GetPxStats();
+	double px = res.first;
+	double err = res.second;
+	cout << px << " " << err << endl;
 
-  cout << "Px=" << px << ", RelErr=" << err << endl;
-
-  delete opt;
+	delete opt;
 	return 0;
 }
